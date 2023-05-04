@@ -264,9 +264,8 @@ class ContractContainer(_ContractBase):
         contract._save_deployment()
         _add_contract(contract)
         self._contracts.append(contract)
-        if CONFIG.network_type == "live":
-            if persist:
-                _add_deployment(contract)
+        if CONFIG.network_type == "live" and persist:
+            _add_deployment(contract)
 
         return contract
 
@@ -409,16 +408,15 @@ class ContractContainer(_ContractBase):
             if int(data["status"]) == 1:
                 # Constructor arguments received
                 break
-            else:
-                # Wait for contract to be recognized by etherscan
-                # This takes a few seconds after the contract is deployed
-                # After 10 loops we throw with the API result message (includes address)
-                if i >= 10:
-                    raise ValueError(f"API request failed with: {data['result']}")
-                elif i == 0 and not silent:
-                    print(f"Waiting for {url} to process contract...")
-                i += 1
-                time.sleep(10)
+            # Wait for contract to be recognized by etherscan
+            # This takes a few seconds after the contract is deployed
+            # After 10 loops we throw with the API result message (includes address)
+            if i >= 10:
+                raise ValueError(f"API request failed with: {data['result']}")
+            elif i == 0 and not silent:
+                print(f"Waiting for {url} to process contract...")
+            i += 1
+            time.sleep(10)
 
         if data["message"] == "OK":
             constructor_arguments = data["result"][0]["input"][contract_info["bytecode_len"] + 2 :]
@@ -758,8 +756,7 @@ class _DeployedContractBase(_ContractBase):
         return self.address
 
     def __repr__(self) -> str:
-        alias = self._build.get("alias")
-        if alias:
+        if alias := self._build.get("alias"):
             return f"<'{alias}' Contract '{self.address}'>"
         return f"<{self._name} Contract '{self.address}'>"
 
@@ -783,11 +780,14 @@ class _DeployedContractBase(_ContractBase):
             raise AttributeError(f"Contract '{self._name}' object has no attribute '{name}'")
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if self._initialized and hasattr(self, name):
-            if isinstance(getattr(self, name), _ContractMethod):
-                raise AttributeError(
-                    f"{self._name}.{name} is a contract function, it cannot be assigned to"
-                )
+        if (
+            self._initialized
+            and hasattr(self, name)
+            and isinstance(getattr(self, name), _ContractMethod)
+        ):
+            raise AttributeError(
+                f"{self._name}.{name} is a contract function, it cannot be assigned to"
+            )
         super().__setattr__(name, value)
 
     def get_method_object(self, calldata: str) -> Optional["_ContractMethod"]:
@@ -835,8 +835,7 @@ class _DeployedContractBase(_ContractBase):
                     json.dump(deployment_build, fp)
 
     def _delete_deployment(self) -> None:
-        path = self._deployment_path()
-        if path:
+        if path := self._deployment_path():
             self._project._remove_from_deployment_map(self)
             if path.exists():
                 path.unlink()
@@ -1141,8 +1140,7 @@ class Contract(_DeployedContractBase):
         elif data["result"][0]["OptimizationUsed"] in ("true", "false"):
             if not silent:
                 warnings.warn(
-                    f"Blockscout explorer API has limited support by Brownie. "  # noqa
-                    "Some debugging functionality will not be available.",
+                    'Blockscout explorer API has limited support by Brownie. Some debugging functionality will not be available.',
                     BrownieCompilerWarning,
                 )
             return cls.from_abi(name, address, abi, owner)
@@ -1363,12 +1361,12 @@ class ContractEvents(_ContractEvents):
                 event_type: ContractEvent = self.__getitem__(event_type)  # type: ignore
             return self._retrieve_contract_events(event_type, from_block, to_block)
 
-        # Returns event sequence for all contract events
-        events_logbook = dict()
-        for event in ContractEvents.__iter__(self):
-            events_logbook[event.event_name] = self._retrieve_contract_events(
+        events_logbook = {
+            event.event_name: self._retrieve_contract_events(
                 event, from_block, to_block
             )
+            for event in ContractEvents.__iter__(self)
+        }
         return AttributeDict(events_logbook)
 
     def listen(self, event_name: str, timeout: float = 0) -> Coroutine:
@@ -1421,7 +1419,7 @@ class ContractEvents(_ContractEvents):
         event_watcher.add_event_callback(
             event=target_event, callback=_event_callback, delay=0.2, repeat=False
         )
-        return _listening_task(bool(timeout > 0), _listener_end_time)
+        return _listening_task(timeout > 0, _listener_end_time)
 
     @combomethod
     def _retrieve_contract_events(
@@ -1607,9 +1605,9 @@ class OverloadedMethod:
         """
         Display NatSpec documentation for this method.
         """
-        fn_sigs = []
-        for fn in self.methods.values():
-            fn_sigs.append(f"{fn.abi['name']}({_inputs(fn.abi)})")
+        fn_sigs = [
+            f"{fn.abi['name']}({_inputs(fn.abi)})" for fn in self.methods.values()
+        ]
         for sig in sorted(fn_sigs, key=lambda k: len(k)):
             print(sig)
         _print_natspec(self.natspec)
@@ -1945,7 +1943,7 @@ def _get_tx(owner: Optional[AccountsType], args: Tuple) -> Tuple:
         "allow_revert": None,
     }
     if args and isinstance(args[-1], dict):
-        tx.update(args[-1])
+        tx |= args[-1]
         args = args[:-1]
         # key substitution to provide compatibility with web3.py
         for key, target in [("amount", "value"), ("gas_limit", "gas"), ("gas_price", "gasPrice")]:
@@ -1979,7 +1977,8 @@ def _inputs(abi: Dict) -> str:
     types_list = get_type_strings(abi["inputs"], {"fixed168x10": "decimal"})
     params = zip([i["name"] for i in abi["inputs"]], types_list)
     return ", ".join(
-        f"{i[1]}{color('bright blue')}{' '+i[0] if i[0] else ''}{color}" for i in params
+        f"{i[1]}{color('bright blue')}{f' {i[0]}' if i[0] else ''}{color}"
+        for i in params
     )
 
 
@@ -2128,16 +2127,13 @@ def _contract_method_autosuggest(args: List, is_transaction: bool, is_payable: b
     else:
         tx_hint = [" {'from': Account}"]
 
-    return [f" {i[1]}{' '+i[0] if i[0] else ''}" for i in params] + tx_hint
+    return [f" {i[1]}{f' {i[0]}' if i[0] else ''}" for i in params] + tx_hint
 
 
 def _comment_slicer(match: Match) -> str:
     start, mid, end = match.group(1, 2, 3)
-    if mid is None:
+    if mid is None or start is not None or end is not None:
         # single line comment
-        return ""
-    elif start is not None or end is not None:
-        # multi line comment at start or end of a line
         return ""
     elif "\n" in mid:
         # multi line comment with line break
