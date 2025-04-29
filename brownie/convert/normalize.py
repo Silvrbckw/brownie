@@ -37,10 +37,7 @@ def format_event(event: Dict) -> Any:
         event["data"] = topics + [
             {"type": "bytes", "name": "data", "value": _format_single("bytes", event["data"])}
         ]
-        if "anonymous" in event:
-            event["name"] = "(anonymous)"
-        else:
-            event["name"] = "(unknown)"
+        event["name"] = "(anonymous)" if "anonymous" in event else "(unknown)"
         return event
 
     for e in [i for i in event["data"] if not i["decoded"]]:
@@ -72,7 +69,9 @@ def _format_tuple(abi_types: Sequence[ABIType], values: Union[List, Tuple]) -> L
 
 
 def _format_array(abi_type: ABIType, values: Union[List, Tuple]) -> List:
-    _check_array(values, None if not len(abi_type.arrlist[-1]) else abi_type.arrlist[-1][0])
+    _check_array(
+        values, abi_type.arrlist[-1][0] if len(abi_type.arrlist[-1]) else None
+    )
     item_type = abi_type.item_type
     if item_type.is_array:
         return [_format_array(item_type, i) for i in values]

@@ -319,9 +319,11 @@ class TransactionReceipt:
 
     @property
     def confirmations(self) -> int:
-        if not self.block_number:
-            return 0
-        return web3.eth.block_number - self.block_number + 1
+        return (
+            web3.eth.block_number - self.block_number + 1
+            if self.block_number
+            else 0
+        )
 
     def replace(
         self,
@@ -436,11 +438,10 @@ class TransactionReceipt:
             source = self._traceback_string()
         else:
             source = self._error_string(1)
-            contract = state._find_contract(self.receiver)
-            if contract:
+            if contract := state._find_contract(self.receiver):
                 marker = "//" if contract._build["language"] == "Solidity" else "#"
                 line = self._traceback_string().split("\n")[-1]
-                if marker + " dev: " in line:
+                if f"{marker} dev: " in line:
                     self._dev_revert_msg = line[line.index(marker) + len(marker) : -5].strip()
 
         raise exc._with_attr(
@@ -693,8 +694,7 @@ class TransactionReceipt:
 
         if trace[-1]["op"] != "RETURN" or self.contract_address:
             return
-        contract = state._find_contract(self.receiver)
-        if contract:
+        if contract := state._find_contract(self.receiver):
             data = _get_memory(trace[-1], -1)
             fn = contract.get_method_object(self.input)
             if not fn:
